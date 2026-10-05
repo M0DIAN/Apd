@@ -95,7 +95,7 @@ class ModuleEntrypointTests(unittest.TestCase):
         self.assertIsNone(shutil.which("apd", path=env["PATH"]))
         self.assertIsNone(shutil.which("apd-gui", path=env["PATH"]))
         with tempfile.TemporaryDirectory() as td:
-            for module, flags, expected in (("apd", ["--version"], "apd 0.3.1"),
+            for module, flags, expected in (("apd", ["--version"], "apd 0.3.2"),
                                            ("apd", ["--help"], "usage: apd"),
                                            ("apd", ["develop", "--help"], "--no-gui"),
                                            ("apd", ["run", "--help"], "--type"),

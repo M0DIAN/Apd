@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 USAGE_NOTICE = "仅显示当前运行时提供的可观测计数，不代表完整 Token 总量或最终账单。"
-USAGE_UNAVAILABLE = "当前运行时未提供完整用量信息"
+USAGE_UNAVAILABLE = "当前运行时未提供可解析的用量信息"
 LABELS = {
     "DISCOVERY": "发现", "IMPLEMENTATION": "实施", "DEEP_REASONING": "深度分析",
     "TEST": "验证", "REVIEW": "独立复核", "GENERAL": "常规任务",
@@ -65,13 +65,21 @@ def translate_status(value: Any) -> str:
 
 
 def format_usage(usage: Any) -> dict[str, Any]:
-    out = {"input": "—", "cached": "—", "output": "—", "reasoning": "—", "available": False}
+    out = {"input": "—", "cached": "—", "output": "—", "reasoning": "—", "total": "—",
+           "source": "", "available": False}
     if isinstance(usage, dict):
+        if isinstance(usage.get("total"), dict):
+            usage, out["source"] = usage["total"], "SDK Total"
+        elif isinstance(usage.get("last"), dict):
+            usage, out["source"] = usage["last"], "SDK Last"
+        else:
+            out["source"] = "Flat Usage"
         keys = {
             "input": ("input_tokens", "inputTokens"),
             "cached": ("cached_input_tokens", "cachedInputTokens"),
             "output": ("output_tokens", "outputTokens"),
-            "reasoning": ("reasoning_tokens", "reasoningTokens"),
+            "reasoning": ("reasoning_tokens", "reasoningOutputTokens", "reasoningTokens"),
+            "total": ("total_tokens", "totalTokens"),
         }
         for label, alternatives in keys.items():
             value = next((usage[key] for key in alternatives if key in usage), None)
@@ -114,24 +122,72 @@ def _time(value: Any) -> str:
         return "—"
 
 
+def format_effort(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return "—"
+    label = {"low": "低", "medium": "中", "high": "高"}.get(value)
+    return f"{value} / {label}" if label else value
+
+
+def _card_result(rows: list[dict[str, Any]]) -> tuple[str, str]:
+    if not rows:
+        return "IDLE", "待命"
+    statuses = [row.get("task_status") for row in rows]
+    status = "FAIL" if "FAIL" in statuses else "BLOCKED" if "BLOCKED" in statuses else (
+        "PASS" if all(value == "PASS" for value in statuses) else statuses[-1])
+    text = {"PASS": "✓ 通过", "FAIL": "✕ 失败", "BLOCKED": "! 阻塞"}.get(status, translate_status(status))
+    durations = [row.get("duration_ms") for row in rows]
+    if all(type(value) is int and value >= 0 for value in durations):
+        seconds = f"{sum(durations) / 1000:.1f}".rstrip("0").rstrip(".")
+        text += f" · {seconds}s"
+    return status, text
+
+
 def observation_view(raw: dict[str, Any], waiting: bool) -> dict[str, Any]:
     runtime = raw.get("runtime", {})
     state = raw.get("state", {})
     receipts = raw.get("receipts", [])
+    history = raw.get("history", [])
+    run_id = runtime.get("run_id")
+    # Strictly isolate tagged runs. Entirely legacy logs retain the latest-receipt fallback.
+    current_run = isinstance(run_id, str) and bool(run_id) and any(
+        row.get("run_id") for row in receipts + history)
+    if current_run:
+        receipts = [row for row in receipts if row.get("run_id") == run_id]
+        history = [row for row in history if row.get("run_id") == run_id]
     status = runtime.get("status", "IDLE")
     active = status in ACTIVE_STATUSES if isinstance(status, str) else False
     selected = runtime.get("router_selected_session", state.get("active_session"))
     models = runtime.get("models", {})
     models = models if isinstance(models, dict) else {}
+    efforts = runtime.get("efforts", {})
+    efforts = efforts if isinstance(efforts, dict) else {}
     cards = []
     for name, role in (("luna", "发现"), ("sol", "实施 / 验证"), ("astra", "深度分析 / 独立复核")):
-        last = next((r for r in reversed(receipts) if r.get("router_selected_session") == name), {})
+        rows = [r for r in receipts if r.get("router_selected_session") == name]
+        if not current_run:
+            rows = rows[-1:]
+        last = rows[-1] if rows else {}
         is_active = active and selected == name
+        result, result_text = _card_result(rows)
+        failed_request = status == "FAILED" and selected == name and not any(
+            runtime.get("turn_id") and r.get("turn_id") == runtime["turn_id"] for r in rows)
+        if failed_request:
+            result, result_text = "FAIL", "✕ 失败"
+        current_request = is_active or failed_request
+        if name == "astra" and rows:
+            stages = {row.get("task_type") for row in rows}
+            if stages == {"REVIEW"}:
+                role = "独立复核"
+            elif stages == {"DEEP_REASONING"}:
+                role = "深度分析"
         cards.append({"name": name.title(), "role": role, "active": is_active,
-                      "model": _text(runtime.get("model") if is_active else last.get("requested_model", models.get(name)), "等待模型信息"),
-                      "status": "工作中" if is_active else "待命"})
+                      "model": _text(runtime.get("model") if current_request else last.get("requested_model", models.get(name)), "等待模型信息"),
+                      "effort": format_effort(runtime.get("effort") if current_request else (
+                          last.get("requested_effort") if last else efforts.get(name))),
+                      "result": result, "status": "● 工作中" if is_active else result_text})
     by_version = {}
-    for row in raw.get("history", []):
+    for row in history:
         version = row.get("state_version")
         if type(version) is int:
             by_version[version] = dict(row)
@@ -162,12 +218,13 @@ def observation_view(raw: dict[str, Any], waiting: bool) -> dict[str, Any]:
         "status": "正在运行" if active else translate_status(status),
         "failed": status == "FAILED", "active": active,
         "stage": translate_status(runtime.get("stage", "IDLE")),
-        "waiting": "等待状态更新" if waiting else "本地只读观察 · 每 400 ms 更新",
+        "waiting": "等待状态更新" if waiting else "本地只读观察 · 每 1 秒更新",
         "repo": _text(runtime.get("repo")), "version": _text(runtime.get("state_version", state.get("state_version", 0))),
         "task": task, "taskType": f"{task_type} / {translate_status(task_type)}",
         "permission": f"{permission} / {translate_status(permission)}",
         "route": _text(selected).title(), "reason": _text(runtime.get("router_reason")),
-        "model": _text(runtime.get("model")), "thread": short_id(runtime.get("thread_id")),
+        "model": _text(runtime.get("model")), "effort": format_effort(runtime.get("effort")),
+        "thread": short_id(runtime.get("thread_id")),
         "turn": short_id(runtime.get("turn_id")),
         "resume": "是" if runtime.get("session_resumed") is True else ("否" if runtime.get("session_resumed") is False else "—"),
         "head": _text(runtime.get("head", state.get("repository_head")))[:8],
@@ -204,7 +261,7 @@ def create_engine(state_dir: Path, qml_path: Path):
             self.raw = {}
             self.view = observation_view({}, True)
             self.timer = QTimer(self)
-            self.timer.setInterval(400)
+            self.timer.setInterval(1000)
             self.timer.timeout.connect(self.refresh)
             self.refresh()
             self.timer.start()
