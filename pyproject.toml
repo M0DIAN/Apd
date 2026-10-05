@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apd"
-version = "0.3.0"
+version = "0.3.1"
 description = "Codex 多模型自动开发 Skill，通过 Luna、Sol、Astra 完成发现、实施、验证与独立复核"
 readme = "README.md"
 requires-python = ">=3.11"
