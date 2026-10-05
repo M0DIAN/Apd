@@ -1,0 +1,30 @@
+{
+  "name": "apd",
+  "version": "0.1.0",
+  "description": "Minimal multi-model automated development coordinator for Codex.",
+  "author": {
+    "name": "M0DIAN"
+  },
+  "repository": "https://github.com/M0DIAN/Apd",
+  "keywords": [
+    "codex",
+    "multi-model",
+    "development",
+    "routing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "APD",
+    "shortDescription": "Multi-model auto development",
+    "longDescription": "Routes discovery, implementation, testing, and review across persistent Codex sessions while keeping one local canonical state and fail-closed write boundaries.",
+    "developerName": "M0DIAN",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Task classification",
+      "Model routing",
+      "Persistent Codex threads",
+      "Read-only and workspace-write separation",
+      "Local route receipts"
+    ]
+  }
+}

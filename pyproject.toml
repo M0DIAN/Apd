@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apd"
+version = "0.1.0"
+description = "Minimal multi-model automated development coordinator for Codex"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["openai-codex"]
+
+[project.scripts]
+apd = "apd:main"
+
+[tool.setuptools]
+py-modules = ["apd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
