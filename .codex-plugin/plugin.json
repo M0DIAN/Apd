@@ -1,7 +1,7 @@
 {
   "name": "apd",
-  "version": "0.1.0",
-  "description": "Minimal multi-model automated development coordinator for Codex.",
+  "version": "0.2.0",
+  "description": "面向 Codex 的轻量多模型自动开发协调器，提供独立实时 GUI 监控。",
   "author": {
     "name": "M0DIAN"
   },
@@ -14,17 +14,17 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "APD",
-    "shortDescription": "Multi-model auto development",
-    "longDescription": "Routes discovery, implementation, testing, and review across persistent Codex sessions while keeping one local canonical state and fail-closed write boundaries.",
+    "displayName": "APD 多模型自动开发",
+    "shortDescription": "自动路由 Luna、Sol、Astra 完成开发任务",
+    "longDescription": "保持单一开发主线的多模型自动开发协调器，支持持久 Session、自动模型路由、读写权限分离、状态合并和实时 GUI 监控。",
     "developerName": "M0DIAN",
     "category": "Developer Tools",
     "capabilities": [
-      "Task classification",
-      "Model routing",
-      "Persistent Codex threads",
-      "Read-only and workspace-write separation",
-      "Local route receipts"
+      "任务分类",
+      "模型路由",
+      "持久 Codex Session",
+      "只读与工作区写入隔离",
+      "本地执行凭据与实时监控"
     ]
   }
 }

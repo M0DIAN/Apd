@@ -4,17 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apd"
-version = "0.1.0"
-description = "Minimal multi-model automated development coordinator for Codex"
+version = "0.2.0"
+description = "面向 Codex 的轻量多模型自动开发协调器与实时监控窗口"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["openai-codex"]
+dependencies = ["openai-codex", "PySide6"]
 
 [project.scripts]
 apd = "apd:main"
+apd-gui = "apd_gui:main"
 
 [tool.setuptools]
-py-modules = ["apd"]
+py-modules = ["apd", "apd_gui"]
+packages = ["apd_ui"]
+
+[tool.setuptools.package-dir]
+apd_ui = "ui"
+
+[tool.setuptools.package-data]
+apd_ui = ["*.qml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
