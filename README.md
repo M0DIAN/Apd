@@ -40,7 +40,7 @@ Codex 可以根据任务选择 APD，依次交给 Luna 发现、必要时 Astra 
 $apd 修复这个问题并完成验证
 ```
 
-CLI 仍可作为手工和调试入口：
+Codex Skill 内部通过 `python -m apd` 调用 APD，不要求 `apd` console script 位于 PATH。手工和调试入口仍可使用 `apd ...`；找不到命令时，也可使用 `python -m apd ...`。
 
 执行一次自动路由任务：
 

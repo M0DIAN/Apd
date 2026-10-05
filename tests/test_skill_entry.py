@@ -3,7 +3,10 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
+import sysconfig
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,12 +55,57 @@ class SkillEntryTests(unittest.TestCase):
         for forbidden in ("APD Skill", "apd develop", "apd run", "GUI"):
             self.assertIn(forbidden, first_instruction)
 
+    def test_skill_uses_modules_for_development_single_steps_and_status(self):
+        _, body = self.skill()
+        for command in ("python -m apd develop", "python -m apd run", "python -m apd status"):
+            self.assertIn(command + ' --repo "<git-root>"', body)
+        self.assertIn('python -m apd_gui --repo "<git-root>"', body)
+        # Inspect invocation examples, allowing mentions of the command names.
+        examples = re.findall(r"`([^`\n]+)`", body)
+        examples += re.findall(r"```bash\n(.*?)\n```", body, re.DOTALL)
+        for example in examples:
+            for line in example.splitlines():
+                self.assertNotRegex(line.strip(), r"^apd(?:-gui)?\s+\S+")
+        self.assertIn("不要求 `apd` 或 `apd-gui` 位于 PATH", body)
+
     def test_no_mcp_configuration_or_plugin_dependency(self):
         for filename in ("mcp.json", ".mcp.json", ".app.json"):
             self.assertFalse(list(ROOT.rglob(filename)), filename)
         for filename in ("plugin.json", ".codex-plugin/plugin.json"):
             manifest = json.loads((ROOT / filename).read_text(encoding="utf-8"))
             self.assertNotIn("mcpServers", manifest)
+
+
+class ModuleEntrypointTests(unittest.TestCase):
+    def test_modules_work_without_console_scripts_on_path(self):
+        base_python = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
+        scripts = {Path(sysconfig.get_path("scripts")).resolve(),
+                   Path(sysconfig.get_path("scripts", scheme=sysconfig.get_preferred_scheme("user"))).resolve()}
+        paths = [str(base_python.parent)]
+        for directory in os.environ.get("PATH", "").split(os.pathsep):
+            if not directory:
+                continue
+            path = Path(directory.strip('"')).resolve()
+            if path in scripts or any((path / name).exists() for name in ("apd", "apd.exe", "apd-gui", "apd-gui.exe")):
+                continue
+            paths.append(str(path))
+        env = dict(os.environ, PATH=os.pathsep.join(paths), PYTHONPATH=str(ROOT), PYTHONDONTWRITEBYTECODE="1")
+        self.assertTrue(base_python.is_file())
+        self.assertEqual(Path(shutil.which(base_python.name, path=env["PATH"])).resolve(), base_python)
+        self.assertIsNone(shutil.which("apd", path=env["PATH"]))
+        self.assertIsNone(shutil.which("apd-gui", path=env["PATH"]))
+        with tempfile.TemporaryDirectory() as td:
+            for module, flags, expected in (("apd", ["--version"], "apd 0.3.1"),
+                                           ("apd", ["--help"], "usage: apd"),
+                                           ("apd", ["develop", "--help"], "--no-gui"),
+                                           ("apd", ["run", "--help"], "--type"),
+                                           ("apd_gui", ["--help"], "usage: apd-gui")):
+                with self.subTest(module=module, flags=flags):
+                    # Windows may resolve the executable before applying env.
+                    result = subprocess.run([str(base_python), "-m", module, *flags], cwd=td, env=env,
+                                            capture_output=True, text=True, encoding="utf-8", timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(expected, result.stdout)
 
 
 class WorkerGuardTests(unittest.TestCase):
