@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "apd",
-  "version": "0.1.0",
-  "description": "Route development work across persistent Luna, Sol, and Astra Codex sessions with minimal state and permission controls."
+  "version": "0.2.0",
+  "description": "通过持久 Luna、Sol、Astra Codex Session 自动路由开发任务，支持状态合并、权限隔离与独立实时监控窗口。"
 }

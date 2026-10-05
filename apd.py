@@ -4,15 +4,17 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 class APDError(RuntimeError):
@@ -130,6 +132,7 @@ class StateStore:
         self.state_path = self.root / "state.json"
         self.history_path = self.root / "history.jsonl"
         self.receipts_path = self.root / "receipts.jsonl"
+        self.runtime_path = self.root / "runtime.json"
         self.repo = repo
 
     def load(self) -> dict[str, Any]:
@@ -162,6 +165,9 @@ class StateStore:
 
     def save(self, state: dict[str, Any]) -> None:
         atomic_json(self.state_path, state)
+
+    def save_runtime(self, runtime: dict[str, Any]) -> None:
+        atomic_json(self.runtime_path, runtime)
 
     def append_history(self, row: dict[str, Any]) -> None:
         append_jsonl(self.history_path, row)
@@ -226,6 +232,17 @@ def usage_json(value: Any) -> Any:
     return str(value)
 
 
+def task_summary(objective: str) -> str:
+    # A bounded title is observer metadata, not the composed worker prompt.
+    # Hide titles containing credential/configuration values or pasted code.
+    title = objective.strip().splitlines()[0] if objective.strip() else "当前开发任务"
+    sensitive = r"(?i)\b(token|auth|authentication|authorization|password|passwd|secrets?|api[_ -]?key|bearer|credentials?)\b|凭据|密钥|密码|令牌|认证|github_pat_|gh[pousr]_|sk-|-----BEGIN|[a-z][a-z0-9+.-]*://[^/\s]*@"
+    values_or_code = r"[={}\[\]`]|[A-Za-z]:[\\/]|\\\\|(?:^|[\s(])/(?!/)|^\s*(?:def |class |import |from )"
+    if re.search(sensitive, objective) or re.search(values_or_code, title):
+        return "敏感配置或代码相关任务（正文已隐藏）"
+    return title[:160] + ("…" if len(title) > 160 or "\n" in objective else "")
+
+
 class Coordinator:
     def __init__(self, repo: Path, models_path: Path):
         self.repo = repo.resolve()
@@ -233,6 +250,35 @@ class Coordinator:
         self.store = StateStore(self.repo)
         self.classifier = TaskClassifier()
         self.router = ModelRouter()
+        self.runtime = {
+            "schema_version": 1,
+            "status": "IDLE",
+            "stage": "IDLE",
+            "repo": str(self.repo),
+            "models": {name: row["model"] for name, row in self.models.items()},
+            "task": "等待开发任务",
+            "error_code": None,
+            "error_message": None,
+        }
+
+    def publish_runtime(self, status: str, **fields: Any) -> None:
+        # Only explicitly supplied observer metadata enters runtime.json.
+        # Never copy worker prompts, results, or exception text here.
+        self.runtime.update(fields)
+        self.runtime.update(status=status, updated_at=datetime.now(timezone.utc).isoformat())
+        self.runtime["stage"] = fields.get("stage", status)
+        try:
+            self.store.save_runtime(self.runtime)
+        except Exception:
+            print("APD_GUI_WARNING: 无法更新监控状态；任务继续。", file=sys.stderr)
+
+    def finish_runtime(self, code: int) -> None:
+        if code == 0:
+            self.publish_runtime("COMPLETED")
+        else:
+            self.publish_runtime(
+                "FAILED", error_code="WORKER_NOT_PASS", error_message="任务未通过，请查看 CLI 与本地状态。"
+            )
 
     def _sdk(self):
         try:
@@ -317,11 +363,25 @@ Return only JSON matching the requested output schema.
     def run_step(self, codex, objective: str, task_type: TaskType, extra: str = "") -> dict[str, Any]:
         Codex, Sandbox, ApprovalMode = self._sdk()
         route = self.router.route(task_type)
+        self.publish_runtime(
+            "ROUTING", task=task_summary(objective), task_type=task_type.value,
+            router_selected_session=route.session, router_reason=route.reason,
+            model=self.models[route.session]["model"], permission_mode=route.permission.value,
+            thread_id=None, turn_id=None, session_resumed=None,
+        )
         state = self.store.load()
         base_version = int(state["state_version"])
         before = snapshot(self.repo)
+        self.publish_runtime(
+            "SYNCING", state_version=base_version, head=before.head,
+            worktree_changed=bool(before.status), files_changed=len(before.status.splitlines()),
+        )
         thread, sandbox, resumed = self._get_thread(codex, state, route)
         model = self.models[route.session]["model"]
+        model_stage = {TaskType.TEST: "VALIDATING", TaskType.REVIEW: "REVIEWING"}.get(task_type, "MODEL_RUNNING")
+        self.publish_runtime(
+            "MODEL_RUNNING", stage=model_stage, thread_id=thread.id, session_resumed=resumed,
+        )
         result = thread.run(
             self._prompt(objective, route, self._state_context(state, route.channel), extra),
             approval_mode=ApprovalMode.deny_all,
@@ -332,6 +392,7 @@ Return only JSON matching the requested output schema.
             sandbox=sandbox,
         )
         worker = parse_result(result.final_response)
+        self.publish_runtime("VALIDATING", turn_id=result.id)
         after = snapshot(self.repo)
 
         if route.permission == Permission.READ_ONLY and after != before:
@@ -340,6 +401,8 @@ Return only JSON matching the requested output schema.
         current = self.store.load()
         if int(current["state_version"]) != base_version:
             raise APDError("STATE_VERSION_MISMATCH")
+
+        self.publish_runtime("MERGING")
 
         current["state_version"] = base_version + 1
         current["phase"] = task_type.value
@@ -361,6 +424,7 @@ Return only JSON matching the requested output schema.
         row["status"] = "HOT"
 
         history = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "state_version": current["state_version"],
             "task_type": task_type.value,
             "summary": worker["summary"],
@@ -369,6 +433,7 @@ Return only JSON matching the requested output schema.
             "changed_files": current["changed_files"],
         }
         receipt = {
+            "updated_at": history["updated_at"],
             "state_version": current["state_version"],
             "task_type": task_type.value,
             "router_selected_session": route.session,
@@ -384,6 +449,12 @@ Return only JSON matching the requested output schema.
         self.store.append_history(history)
         self.store.append_receipt(receipt)
         self.store.save(current)
+        self.publish_runtime(
+            "MERGING", state_version=current["state_version"], head=after.head,
+            worktree_changed=bool(after.status), files_changed=len(after.status.splitlines()),
+            current_blocker="WORKER_BLOCKED" if worker["current_blocker"] else None,
+            next_action="查看 Canonical State 中的下一步" if worker["next_action"] else "等待下一阶段",
+        )
 
         print(f"[ROUTE] {task_type.value} -> {route.session.upper()} reason={route.reason} permission={route.permission.value}")
         print(f"[EXECUTION] model={model} thread={thread.id[:8]}... resume={str(resumed).lower()}")
@@ -416,8 +487,27 @@ def default_models() -> Path:
     return Path(os.environ.get("APD_MODELS", Path(__file__).resolve().with_name("models.toml")))
 
 
+def launch_gui_best_effort(repo: Path, state_dir: Path) -> None:
+    if os.environ.get("APD_GUI") == "0":
+        return
+    try:
+        executable = Path(sys.executable)
+        if os.name == "nt" and executable.with_name("pythonw.exe").is_file():
+            executable = executable.with_name("pythonw.exe")
+        flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
+        subprocess.Popen(
+            [str(executable), str(Path(__file__).resolve().with_name("apd_gui.py")),
+             "--repo", str(repo), "--state-dir", str(state_dir)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            close_fds=True, creationflags=flags,
+            start_new_session=os.name != "nt",
+        )
+    except Exception:
+        print("APD_GUI_WARNING: 监控窗口启动失败；任务继续。", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="apd", description="Minimal multi-model automated development coordinator")
+    p = argparse.ArgumentParser(prog="apd", description="APD — 多模型自动开发协调器")
     p.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     p.add_argument("--models", default=str(default_models()))
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -429,31 +519,51 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--repo", default=".")
     r.add_argument("--task", required=True)
     r.add_argument("--type", default="AUTO", choices=["AUTO"] + [x.value for x in TaskType])
+    r.add_argument("--no-gui", action="store_true", help="不启动实时监控窗口")
 
     d = sub.add_parser("develop")
     d.add_argument("--repo", default=".")
     d.add_argument("--task", required=True)
+    d.add_argument("--no-gui", action="store_true", help="不启动实时监控窗口")
 
     args = p.parse_args(argv)
+    c = None
     try:
         c = Coordinator(Path(args.repo), Path(args.models))
         if args.cmd == "status":
             print(json.dumps(c.store.load(), ensure_ascii=False, indent=2, sort_keys=True))
             return 0
+        c.publish_runtime("STARTING", task=task_summary(args.task))
+        if not args.no_gui and os.environ.get("APD_GUI") != "0":
+            launch_gui_best_effort(c.repo, c.store.root)
         if args.cmd == "develop":
-            return c.develop(args.task)
+            code = c.develop(args.task)
+            c.finish_runtime(code)
+            return code
         task_type = c.classifier.classify(args.task) if args.type == "AUTO" else TaskType(args.type)
         Codex, _, _ = c._sdk()
         with Codex() as codex:
             out = c.run_step(codex, args.task, task_type)
         print(json.dumps(out["result"], ensure_ascii=False, indent=2))
-        return 0 if out["result"]["status"] == "PASS" else 2
+        code = 0 if out["result"]["status"] == "PASS" else 2
+        c.finish_runtime(code)
+        return code
     except (APDError, RuntimeError) as exc:
+        if c is not None:
+            error_code = str(exc) if str(exc) in {"READ_ONLY_REPOSITORY_CHANGED", "STATE_VERSION_MISMATCH"} else "APD_ERROR"
+            c.publish_runtime("FAILED", error_code=error_code, error_message="APD 任务异常，请查看 CLI。")
         print(f"APD_FAIL_CLOSED: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
+        if c is not None:
+            c.publish_runtime("FAILED", error_code="INTERRUPTED", error_message="任务被中断。")
         print("APD_INTERRUPTED", file=sys.stderr)
         return 130
+    except Exception:
+        if c is not None:
+            c.publish_runtime("FAILED", error_code="CORE_ERROR", error_message="APD 执行异常，请检查本地配置。")
+        print("APD_FAIL_CLOSED: APD 执行异常，请检查本地配置。", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
