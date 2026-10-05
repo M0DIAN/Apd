@@ -19,8 +19,8 @@ APD 不是 Codex 原生的子 Agent 系统。它通过官方 `openai-codex` SDK 
 需要 Python 3.11 或更高版本：
 
 ```bash
-git clone https://github.com/M0DIAN/Apd.git
-cd Apd
+git clone https://github.com/M0DIAN/apd.git
+cd apd
 python -m pip install -e .
 ```
 
