@@ -1,7 +1,7 @@
 {
   "name": "apd",
-  "version": "0.2.0",
-  "description": "面向 Codex 的轻量多模型自动开发协调器，提供独立实时 GUI 监控。",
+  "version": "0.3.0",
+  "description": "APD 是一个 Codex 多模型自动开发 Skill，根据软件开发请求，在 Luna、Sol、Astra 之间路由发现、实施、验证和独立复核。",
   "author": {
     "name": "M0DIAN"
   },
@@ -14,9 +14,9 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "APD 多模型自动开发",
-    "shortDescription": "自动路由 Luna、Sol、Astra 完成开发任务",
-    "longDescription": "保持单一开发主线的多模型自动开发协调器，支持持久 Session、自动模型路由、读写权限分离、状态合并和实时 GUI 监控。",
+    "displayName": "APD 多模型自动开发 Skill",
+    "shortDescription": "通过 Luna、Sol、Astra 完成发现、实施、验证与复核",
+    "longDescription": "在 Codex 中提出开发任务，APD Skill 会调用本地协调器，路由 Luna、Sol、Astra 完成发现、实施、验证和独立复核。保留持久 Session、读写权限隔离和实时 GUI 监控。",
     "developerName": "M0DIAN",
     "category": "Developer Tools",
     "capabilities": [

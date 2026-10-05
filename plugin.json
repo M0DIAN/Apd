@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "apd",
-  "version": "0.2.0",
-  "description": "通过持久 Luna、Sol、Astra Codex Session 自动路由开发任务，支持状态合并、权限隔离与独立实时监控窗口。"
+  "version": "0.3.0",
+  "description": "APD 是一个 Codex 多模型自动开发 Skill，根据软件开发请求，在 Luna、Sol、Astra 之间路由发现、实施、验证和独立复核。"
 }
