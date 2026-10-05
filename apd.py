@@ -11,10 +11,11 @@ import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 class APDError(RuntimeError):
@@ -282,10 +283,13 @@ class Coordinator:
 
     def _sdk(self):
         try:
-            from openai_codex import ApprovalMode, Codex, Sandbox
+            from openai_codex import ApprovalMode, Codex, CodexConfig, Sandbox
         except ImportError as exc:
             raise APDError("openai-codex is not installed; run: pip install -e .") from exc
-        return Codex, Sandbox, ApprovalMode
+        # The SDK merges these overrides into the child environment, leaving
+        # this process (including the GUI launcher) untouched.
+        runtime = partial(Codex, config=CodexConfig(env={"APD_INTERNAL_WORKER": "1"}))
+        return runtime, Sandbox, ApprovalMode
 
     def _state_context(self, state: dict[str, Any], channel: str) -> str:
         session = state.get("sessions", {}).get(channel, {})
@@ -344,7 +348,10 @@ class Coordinator:
             TaskType.TEST: "Run or inspect focused validation; do not alter source files.",
             TaskType.GENERAL: "Handle the task directly and conservatively.",
         }[route.task_type]
-        return f"""You are the APD {route.session} worker.
+        return f"""You are an APD internal worker.
+Do not invoke the APD skill, APD CLI, or another APD development loop.
+Execute only the assigned worker task directly.
+You are the APD {route.session} worker.
 Objective: {objective}
 Task type: {route.task_type.value}
 Permission: {route.permission.value}
