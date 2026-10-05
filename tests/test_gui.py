@@ -61,7 +61,7 @@ class HelpersTests(unittest.TestCase):
                                          "output_tokens_details": {"reasoning_tokens": 3}})
         self.assertEqual([observed[k] for k in ("input", "cached", "output", "reasoning")], ["0", "12", "50", "3"])
         self.assertEqual(observed["notice"], apd_gui.USAGE_NOTICE)
-        unknown = apd_gui.format_usage({"total_tokens": 1000, "input_tokens": True})
+        unknown = apd_gui.format_usage({"total_tokens": -1, "input_tokens": True})
         self.assertFalse(unknown["available"])
         self.assertEqual(unknown["message"], apd_gui.USAGE_UNAVAILABLE)
 
@@ -275,7 +275,7 @@ with apd_gui.qml_resource() as path:
     assert engine.rootObjects(), "QML has no root objects"
     root = engine.rootObjects()[0]
     assert root.title() == "APD 多模型开发监视器"
-    assert monitor.timer.interval() == 400
+    assert monitor.timer.interval() == 1000
     assert len(monitor.data["sessions"]) == 3
     QTimer.singleShot(100, root.close)
     assert app.exec() == 0

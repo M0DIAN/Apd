@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "apd",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "APD 是一个 Codex 多模型自动开发 Skill，根据软件开发请求，在 Luna、Sol、Astra 之间路由发现、实施、验证和独立复核。"
 }

@@ -109,7 +109,7 @@ ApplicationWindow {
                     delegate: Rectangle {
                         required property var modelData
                         Layout.fillWidth: true
-                        implicitHeight: 130
+                        implicitHeight: 158
                         radius: 14
                         color: modelData.active ? "#19332f" : "#161e2b"
                         border { color: modelData.active ? window.accent : "#273449"; width: modelData.active ? 2 : 1 }
@@ -121,10 +121,17 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 Text { text: modelData.name; color: "#f2f6fc"; font { pixelSize: 19; bold: true } }
                                 Item { Layout.fillWidth: true }
-                                Text { text: (modelData.active ? "● " : "") + modelData.status; color: modelData.active ? window.accent : "#8999b1"; font.pixelSize: 12 }
+                                Text {
+                                    text: modelData.status
+                                    color: modelData.active || modelData.result === "PASS" ? "#70dec9" :
+                                           modelData.result === "FAIL" ? "#f38d99" :
+                                           modelData.result === "BLOCKED" ? "#f2ca7b" : "#8999b1"
+                                    font.pixelSize: 12
+                                }
                             }
                             Caption { text: modelData.role }
                             Value { text: modelData.model; font.pixelSize: 12; elide: Text.ElideRight; maximumLineCount: 1 }
+                            Caption { text: modelData.effort }
                             Item { Layout.fillHeight: true }
                         }
                     }
@@ -138,7 +145,7 @@ ApplicationWindow {
                 Panel {
                     heading: "Router / Session"
                     Layout.preferredWidth: 1
-                    Field { label: "路由选择 · 模型 ID（请求）"; value: "→ " + window.info.route + "  /  " + window.info.model }
+                    Field { label: "路由选择 · 模型 ID · 档位（请求）"; value: "→ " + window.info.route + "  /  " + window.info.model + "  /  " + window.info.effort }
                     Field { label: "Router 原因"; value: window.info.reason }
                     RowLayout {
                         Layout.fillWidth: true
@@ -185,6 +192,7 @@ ApplicationWindow {
                     heading: "可观测 Token Usage"
                     Layout.preferredWidth: 2
                     Caption { text: window.info.usage.message; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Caption { text: window.info.usage.source; visible: text.length > 0; color: window.accent }
                     GridLayout {
                         columns: 2
                         columnSpacing: 24
@@ -194,6 +202,7 @@ ApplicationWindow {
                         Field { label: "缓存输入 / Cached Input"; value: window.info.usage.cached }
                         Field { label: "输出 / Output"; value: window.info.usage.output }
                         Field { label: "推理 / Reasoning"; value: window.info.usage.reasoning }
+                        Field { label: "总计 / Total"; value: window.info.usage.total; visible: value !== "—" }
                     }
                     Caption { text: window.info.usage.notice; wrapMode: Text.Wrap; Layout.fillWidth: true; lineHeight: 1.3 }
                 }

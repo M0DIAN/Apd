@@ -19,7 +19,7 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(tomllib.load(stream)["project"]["version"], apd.VERSION)
         for path in (ROOT / "plugin.json", ROOT / ".codex-plugin" / "plugin.json"):
             self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["version"], apd.VERSION)
-        self.assertEqual(apd.VERSION, "0.3.1")
+        self.assertEqual(apd.VERSION, "0.3.2")
 
     def test_wheel_installed_qml_from_an_unrelated_directory(self):
         with tempfile.TemporaryDirectory() as td:
@@ -41,7 +41,7 @@ import importlib.metadata
 from PySide6.QtGui import QGuiApplication
 import apd
 import apd_gui
-assert apd.VERSION == importlib.metadata.version("apd") == "0.3.1"
+assert apd.VERSION == importlib.metadata.version("apd") == "0.3.2"
 assert Path(apd_gui.__file__).is_relative_to(Path.cwd() / "installed"), apd_gui.__file__
 app = QGuiApplication([])
 with apd_gui.qml_resource() as path:

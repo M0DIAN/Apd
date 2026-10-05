@@ -1,0 +1,16 @@
+{
+  "last": {
+    "cachedInputTokens": 17152,
+    "inputTokens": 18115,
+    "outputTokens": 377,
+    "reasoningOutputTokens": 144,
+    "totalTokens": 18492
+  },
+  "total": {
+    "cachedInputTokens": 49408,
+    "inputTokens": 69702,
+    "outputTokens": 1177,
+    "reasoningOutputTokens": 752,
+    "totalTokens": 70879
+  }
+}

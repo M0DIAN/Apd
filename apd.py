@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,8 +15,9 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 
 class APDError(RuntimeError):
@@ -251,12 +253,15 @@ class Coordinator:
         self.store = StateStore(self.repo)
         self.classifier = TaskClassifier()
         self.router = ModelRouter()
+        self.run_id = uuid4().hex
         self.runtime = {
             "schema_version": 1,
+            "run_id": self.run_id,
             "status": "IDLE",
             "stage": "IDLE",
             "repo": str(self.repo),
             "models": {name: row["model"] for name, row in self.models.items()},
+            "efforts": {name: row["effort"] for name, row in self.models.items()},
             "task": "等待开发任务",
             "error_code": None,
             "error_message": None,
@@ -368,12 +373,17 @@ Return only JSON matching the requested output schema.
 """
 
     def run_step(self, codex, objective: str, task_type: TaskType, extra: str = "") -> dict[str, Any]:
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
         Codex, Sandbox, ApprovalMode = self._sdk()
         route = self.router.route(task_type)
+        model = self.models[route.session]["model"]
+        effort = self.models[route.session]["effort"]
         self.publish_runtime(
             "ROUTING", task=task_summary(objective), task_type=task_type.value,
             router_selected_session=route.session, router_reason=route.reason,
-            model=self.models[route.session]["model"], permission_mode=route.permission.value,
+            model=model, effort=effort, permission_mode=route.permission.value,
+            started_at=started_at, duration_ms=None,
             thread_id=None, turn_id=None, session_resumed=None,
         )
         state = self.store.load()
@@ -384,7 +394,6 @@ Return only JSON matching the requested output schema.
             worktree_changed=bool(before.status), files_changed=len(before.status.splitlines()),
         )
         thread, sandbox, resumed = self._get_thread(codex, state, route)
-        model = self.models[route.session]["model"]
         model_stage = {TaskType.TEST: "VALIDATING", TaskType.REVIEW: "REVIEWING"}.get(task_type, "MODEL_RUNNING")
         self.publish_runtime(
             "MODEL_RUNNING", stage=model_stage, thread_id=thread.id, session_resumed=resumed,
@@ -393,7 +402,7 @@ Return only JSON matching the requested output schema.
             self._prompt(objective, route, self._state_context(state, route.channel), extra),
             approval_mode=ApprovalMode.deny_all,
             cwd=str(self.repo),
-            effort=self.models[route.session]["effort"],
+            effort=effort,
             model=model,
             output_schema=RESULT_SCHEMA,
             sandbox=sandbox,
@@ -430,7 +439,11 @@ Return only JSON matching the requested output schema.
         row["synced_state_version"] = current["state_version"]
         row["status"] = "HOT"
 
+        duration_ms = round(max(0, time.monotonic() - started_monotonic) * 1000)
         history = {
+            "run_id": self.run_id,
+            "started_at": started_at,
+            "duration_ms": duration_ms,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "state_version": current["state_version"],
             "task_type": task_type.value,
@@ -440,6 +453,9 @@ Return only JSON matching the requested output schema.
             "changed_files": current["changed_files"],
         }
         receipt = {
+            "run_id": self.run_id,
+            "started_at": started_at,
+            "duration_ms": duration_ms,
             "updated_at": history["updated_at"],
             "state_version": current["state_version"],
             "task_type": task_type.value,
@@ -447,6 +463,7 @@ Return only JSON matching the requested output schema.
             "router_reason": route.reason,
             "permission_mode": route.permission.value,
             "requested_model": model,
+            "requested_effort": effort,
             "thread_id": thread.id,
             "turn_id": result.id,
             "session_resumed": resumed,
@@ -458,6 +475,7 @@ Return only JSON matching the requested output schema.
         self.store.save(current)
         self.publish_runtime(
             "MERGING", state_version=current["state_version"], head=after.head,
+            duration_ms=duration_ms,
             worktree_changed=bool(after.status), files_changed=len(after.status.splitlines()),
             current_blocker="WORKER_BLOCKED" if worker["current_blocker"] else None,
             next_action="查看 Canonical State 中的下一步" if worker["next_action"] else "等待下一阶段",
